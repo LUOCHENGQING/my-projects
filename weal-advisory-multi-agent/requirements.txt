@@ -1,0 +1,11 @@
+# 财富管理投顾多智能体 —— 运行依赖
+# 说明：本项目对核心依赖使用 ">= 下限" 约束，便于在已预装环境中直接通过
+#      `pip install -r requirements.txt`（已满足时会直接跳过下载）。
+# 本项目不依赖 openai SDK：LLM 调用通过标准库 urllib 访问 OpenAI 兼容端点，
+# 详见 src/llm.py。无 API Key 时自动切换到确定性 mock 大脑。
+
+pydantic>=2.5
+langgraph>=0.2
+langchain-core>=0.3
+numpy>=1.26
+pytest>=7.4

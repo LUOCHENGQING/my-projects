@@ -1,0 +1,29 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- 测试与缓存 ----
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- 运行产物：轨迹文件保留目录本身，内容不入库 ----
+runs/*.jsonl
+!runs/.gitkeep
+
+# 评测明细允许入库（便于对比历史指标），如需忽略请取消下一行注释
+# eval/last_report.json
+
+# ---- 环境与密钥 ----
+.env
+.env.local
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

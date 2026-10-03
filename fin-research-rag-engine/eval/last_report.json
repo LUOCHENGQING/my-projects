@@ -1,0 +1,625 @@
+{
+  "generated_at": "2026-10-03 03:50:52",
+  "llm_mode": "mock",
+  "engine_stats": {
+    "corpus": {
+      "documents": 10,
+      "sections": 53,
+      "tables": 19,
+      "faq": 10,
+      "doc_types": [
+        "产品要素表",
+        "产品说明书",
+        "内部制度",
+        "尽调档案",
+        "监管政策",
+        "研究报告",
+        "结构化记录",
+        "风险案例"
+      ],
+      "formats": [
+        "csv",
+        "json",
+        "markdown",
+        "text"
+      ]
+    },
+    "chunks": {
+      "documents": 10,
+      "parents": 52,
+      "children": 163,
+      "table_children": 54,
+      "paragraph_children": 109,
+      "min_child_chars": 15,
+      "max_child_chars": 365,
+      "avg_child_chars": 68.33,
+      "avg_children_per_parent": 3.13
+    },
+    "index": {
+      "children": 163,
+      "parents": 52,
+      "vocabulary": 3052,
+      "rrf_k": 60,
+      "recall_top_k": 20,
+      "embedding": {
+        "backend": "local",
+        "model": "local-hashing",
+        "dim": 512,
+        "available": true
+      },
+      "vector_store": [
+        {
+          "name": "finrag_chunks",
+          "dim": 512,
+          "metric": "COSINE",
+          "count": 163
+        }
+      ]
+    },
+    "reranker": "local-cross-encoder",
+    "llm": {
+      "mode": "mock",
+      "model": "gpt-4o-mini",
+      "base_url": "(mock)",
+      "has_key": false,
+      "forced_mock": true
+    },
+    "faq": {
+      "entries": 10,
+      "threshold": 0.62,
+      "categories": [
+        "交易规则",
+        "产品要素",
+        "合规宣传",
+        "开户",
+        "适当性",
+        "销售流程"
+      ]
+    },
+    "cache": {
+      "backend": "memory",
+      "entries": 0,
+      "max_entries": 512,
+      "ttl_s": 600
+    },
+    "masked_documents": 0,
+    "known_entities": [
+      "示例基金管理有限公司",
+      "示例监管机构",
+      "示例证券研究所",
+      "示例银行股份有限公司",
+      "示例集团股份有限公司",
+      "稳赢系列 90 天持有期"
+    ],
+    "quality": {
+      "avg_score": 0.993,
+      "low_quality": []
+    },
+    "config": {
+      "embed_backend": "local",
+      "embed_model": "BAAI/bge-m3",
+      "embed_dim": 512,
+      "child_chunk_chars": 180,
+      "child_chunk_overlap": 48,
+      "recall_top_k": 20,
+      "final_top_k": 5,
+      "rrf_k": 60,
+      "dedup_jaccard": 0.82,
+      "rerank_weights": {
+        "cross": 0.55,
+        "rrf": 0.3,
+        "metadata": 0.15
+      },
+      "cache_backend": "memory",
+      "llm_mode": "mock"
+    }
+  },
+  "metrics": {
+    "case_count": 10,
+    "retrieval_hit_rate": 1.0,
+    "dense_only_hit_rate": 0.9,
+    "bm25_only_hit_rate": 1.0,
+    "complex_question_retrieval_lift_pct": 11.11,
+    "mrr": 0.9,
+    "dense_only_mrr": 0.6833,
+    "top1_accuracy": 0.8,
+    "dense_only_top1_accuracy": 0.5,
+    "recall_at_1": 0.8,
+    "citation_traceability_rate": 1.0,
+    "answer_relevance": 1.0,
+    "number_faithfulness_rate": 1.0,
+    "claim_support_rate": 0.9857,
+    "route_accuracy": 0.875,
+    "avg_latency_ms": 26.368,
+    "max_latency_ms": 33.586,
+    "min_latency_ms": 17.574,
+    "refusal_accuracy": 1.0,
+    "faq_accuracy": 1.0,
+    "cache_hit_latency_ms": 0.556,
+    "cache_hit": true,
+    "wall_clock_ms": 364.439
+  },
+  "cases": [
+    {
+      "id": "Q01",
+      "type": "clause",
+      "question": "C2 客户可以购买哪些风险等级的产品？",
+      "route": "clause",
+      "expect_route": "clause",
+      "expect_source_groups": [
+        [
+          "POL-2024-07"
+        ]
+      ],
+      "got_sources": [
+        "POL-2024-07",
+        "CASE-2024-03"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "POL-2024-07",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 805,
+      "latency_ms": 26.158,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 1.0,
+      "dense_top1_hit": true,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q02",
+      "type": "case",
+      "question": "有没有向低风险承受能力客户销售高风险产品被处罚的案例？",
+      "route": "case",
+      "expect_route": "case",
+      "expect_source_groups": [
+        [
+          "CASE-2024-03",
+          "POL-2024-07"
+        ]
+      ],
+      "got_sources": [
+        "CASE-2024-03",
+        "INS-2024-09",
+        "POL-2024-07",
+        "PROD-WY2024-01"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "CASE-2024-03",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 806,
+      "latency_ms": 25.499,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 1.0,
+      "dense_top1_hit": true,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q03",
+      "type": "metric",
+      "question": "稳赢系列 90 天持有期的起投金额和费率是多少？",
+      "route": "metric",
+      "expect_route": "metric",
+      "expect_source_groups": [
+        [
+          "PROD-WY2024-01",
+          "PROD-TABLE-2024",
+          "PROD-JSON-2024"
+        ]
+      ],
+      "got_sources": [
+        "PROD-TABLE-2024",
+        "PROD-JSON-2024"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "PROD-TABLE-2024",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 3,
+      "dangling": 0,
+      "answer_chars": 831,
+      "latency_ms": 33.31,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 1.0,
+      "dense_top1_hit": true,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q04",
+      "type": "clause",
+      "question": "合格投资者的金融资产和收入门槛是多少？",
+      "route": "clause",
+      "expect_route": "clause",
+      "expect_source_groups": [
+        [
+          "POL-2024-07"
+        ]
+      ],
+      "got_sources": [
+        "PROD-JSON-2024",
+        "POL-2024-07",
+        "PROD-TABLE-2024"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 0.0,
+      "mrr": 0.5,
+      "top1_source": "PROD-JSON-2024",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 968,
+      "latency_ms": 33.586,
+      "error": "",
+      "dense_hit_rate": 0.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 0.0,
+      "dense_top1_hit": false,
+      "top1_hit": false,
+      "baseline_gain": 1.0
+    },
+    {
+      "id": "Q05",
+      "type": "clause",
+      "question": "双录资料需要保存多久？",
+      "route": "clause",
+      "expect_route": "clause",
+      "expect_source_groups": [
+        [
+          "POL-2024-07",
+          "INS-2024-09"
+        ]
+      ],
+      "got_sources": [
+        "CASE-2024-03",
+        "POL-2024-07",
+        "INS-2024-09"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 0.0,
+      "mrr": 0.5,
+      "top1_source": "CASE-2024-03",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 655,
+      "latency_ms": 22.07,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 0.5,
+      "dense_top1_hit": false,
+      "top1_hit": false,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q06",
+      "type": "clause",
+      "question": "2023 年的合格投资者金融资产标准是多少？",
+      "route": "clause",
+      "expect_route": "clause",
+      "expect_source_groups": [
+        [
+          "POL-2023-11"
+        ]
+      ],
+      "got_sources": [
+        "POL-2023-11"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "POL-2023-11",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 649,
+      "latency_ms": 17.574,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 0.3333,
+      "dense_top1_hit": false,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q07",
+      "type": "clause",
+      "question": "年满 65 周岁的客户购买 R3 产品有哪些额外要求？",
+      "route": "clause",
+      "expect_route": "clause",
+      "expect_source_groups": [
+        [
+          "POL-2024-07",
+          "INS-2024-09"
+        ]
+      ],
+      "got_sources": [
+        "INS-2024-09",
+        "POL-2024-07",
+        "CASE-2024-03",
+        "PROD-JSON-2024"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "INS-2024-09",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 746,
+      "latency_ms": 27.968,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 1.0,
+      "dense_top1_hit": true,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q08",
+      "type": "metric",
+      "question": "在售产品里哪些是合格投资者专属的？",
+      "route": "general",
+      "expect_route": "metric",
+      "expect_source_groups": [
+        [
+          "PROD-TABLE-2024",
+          "PROD-JSON-2024"
+        ]
+      ],
+      "got_sources": [
+        "PROD-TABLE-2024",
+        "PROD-JSON-2024",
+        "POL-2024-07"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "PROD-TABLE-2024",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 931,
+      "latency_ms": 26.527,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 0.5,
+      "dense_top1_hit": false,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q09",
+      "type": "case",
+      "question": "示例集团 2023 年应收账款增速为什么值得关注？",
+      "route": "general",
+      "expect_route": "",
+      "expect_source_groups": [
+        [
+          "DD-2024-05"
+        ]
+      ],
+      "got_sources": [
+        "DD-2024-05",
+        "OCR-2023-12"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "DD-2024-05",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 1.0,
+      "citations": 2,
+      "dangling": 0,
+      "answer_chars": 497,
+      "latency_ms": 24.458,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 0.5,
+      "dense_top1_hit": false,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    },
+    {
+      "id": "Q10",
+      "type": "case",
+      "question": "产品宣传材料里使用预期收益率被怎么处理了？",
+      "route": "metric",
+      "expect_route": "",
+      "expect_source_groups": [
+        [
+          "CASE-2024-03"
+        ]
+      ],
+      "got_sources": [
+        "CASE-2024-03",
+        "POL-2024-07",
+        "RPT-2024-06"
+      ],
+      "hit_rate": 1.0,
+      "recall_at_1": 1.0,
+      "mrr": 1.0,
+      "top1_source": "CASE-2024-03",
+      "traceable": true,
+      "coverage": 1.0,
+      "numbers_ok": true,
+      "faithful": true,
+      "support_rate": 0.8571,
+      "citations": 4,
+      "dangling": 0,
+      "answer_chars": 734,
+      "latency_ms": 26.532,
+      "error": "",
+      "dense_hit_rate": 1.0,
+      "bm25_hit_rate": 1.0,
+      "dense_mrr": 1.0,
+      "dense_top1_hit": true,
+      "top1_hit": true,
+      "baseline_gain": 0.0
+    }
+  ],
+  "refusal_cases": [
+    {
+      "id": "R01",
+      "question": "示例科技股份有限公司 2024 年的净利润是多少？",
+      "refused": true,
+      "mode": "refused",
+      "answer": "现有资料不足以回答该问题：「示例科技股份有限公司」不在本资料库的主体范围内。资料库当前覆盖的主体为：示例基金管理有限公司、示例监管机构、示例证券研究所、示例银行股份有限公司、示例集团股份有限公司、稳赢系列 90 天持有期。请补充该主体的制度"
+    },
+    {
+      "id": "R02",
+      "question": "示例智造银行股份有限公司 2024 年的不良贷款率是多少？",
+      "refused": true,
+      "mode": "refused",
+      "answer": "现有资料不足以回答该问题：「示例智造银行股份有限公司」不在本资料库的主体范围内。资料库当前覆盖的主体为：示例基金管理有限公司、示例监管机构、示例证券研究所、示例银行股份有限公司、示例集团股份有限公司、稳赢系列 90 天持有期。请补充该主体的"
+    }
+  ],
+  "faq_cases": [
+    {
+      "id": "F01",
+      "question": "开户需要准备哪些材料？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 1.0,
+      "matched": "开户需要准备哪些材料？",
+      "correct": true
+    },
+    {
+      "id": "F02",
+      "question": "风险承受能力评估结果多久过期？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 1.0,
+      "matched": "风险承受能力评估结果多久过期？",
+      "correct": true
+    },
+    {
+      "id": "F03",
+      "question": "R2 的产品可以卖给 C1 客户吗？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 0.9244,
+      "matched": "R2 风险等级的产品可以卖给 C1 客户吗？",
+      "correct": true
+    },
+    {
+      "id": "F04",
+      "question": "双录资料要保存多久？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 0.9183,
+      "matched": "双录资料需要保存多久？",
+      "correct": true
+    },
+    {
+      "id": "F05",
+      "question": "冷静期是多久？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 0.885,
+      "matched": "冷静期是多久，冷静期内可以撤单吗？",
+      "correct": true
+    },
+    {
+      "id": "F06",
+      "question": "稳赢系列 90 天的起投金额是多少？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 0.9159,
+      "matched": "稳赢系列 90 天的起投金额和费率是多少？",
+      "correct": true
+    },
+    {
+      "id": "F07",
+      "question": "合格投资者标准是什么？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 0.9306,
+      "matched": "合格投资者的标准是什么？",
+      "correct": true
+    },
+    {
+      "id": "F08",
+      "question": "赎回后资金多久到账？",
+      "expect_hit": true,
+      "hit": true,
+      "score": 1.0,
+      "matched": "赎回后资金多久到账？",
+      "correct": true
+    },
+    {
+      "id": "F09",
+      "question": "请帮我写一段产品营销文案，要能吸引客户",
+      "expect_hit": false,
+      "hit": false,
+      "score": 0.0,
+      "matched": "",
+      "correct": true
+    },
+    {
+      "id": "F10",
+      "question": "明天大盘会涨还是会跌？",
+      "expect_hit": false,
+      "hit": false,
+      "score": 0.0,
+      "matched": "",
+      "correct": true
+    }
+  ]
+}

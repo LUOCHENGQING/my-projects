@@ -1,0 +1,117 @@
+{
+  "description": "金融智研引擎评测集。expect_source_groups 是人工标注的『标准答案所在资料』分组：每个分组内任一资料被召回即算该组命中，命中率 = 命中组数 / 组数。这样既能表达『同一答案分布在多份资料里，命中任一即可』，也能表达『跨文档问题必须两份都召回』。keyphrases 为必答要点，用于计算答案相关度。",
+  "cases": [
+    {
+      "id": "Q01",
+      "type": "clause",
+      "question": "C2 客户可以购买哪些风险等级的产品？",
+      "expect_source_groups": [["POL-2024-07"]],
+      "keyphrases": ["R1", "R2"],
+      "expect_route": "clause",
+      "why": "条款类：匹配矩阵里的结论，要求字面精确命中条款表"
+    },
+    {
+      "id": "Q02",
+      "type": "case",
+      "question": "有没有向低风险承受能力客户销售高风险产品被处罚的案例？",
+      "expect_source_groups": [["CASE-2024-03", "POL-2024-07"]],
+      "keyphrases": ["30 万元", "警示函"],
+      "expect_route": "case",
+      "why": "案例类：语义相似度更重要，条款原文只是佐证"
+    },
+    {
+      "id": "Q03",
+      "type": "metric",
+      "question": "稳赢系列 90 天持有期的起投金额和费率是多少？",
+      "expect_source_groups": [["PROD-WY2024-01", "PROD-TABLE-2024", "PROD-JSON-2024"]],
+      "keyphrases": ["1 万元", "0.30%"],
+      "expect_route": "metric",
+      "why": "指标类：同一要素在说明书、CSV 要素表、JSON 产品库里各有一份，命中任一即算对"
+    },
+    {
+      "id": "Q04",
+      "type": "clause",
+      "question": "合格投资者的金融资产和收入门槛是多少？",
+      "expect_source_groups": [["POL-2024-07"]],
+      "keyphrases": ["300 万元", "50 万元"],
+      "expect_route": "clause",
+      "why": "条款类：门槛类数字必须精确，不接受任何近似"
+    },
+    {
+      "id": "Q05",
+      "type": "clause",
+      "question": "双录资料需要保存多久？",
+      "expect_source_groups": [["POL-2024-07", "INS-2024-09"]],
+      "keyphrases": ["二十年"],
+      "expect_route": "clause",
+      "why": "跨文档：监管政策与内部制度都写了保存期限，命中任一份即可"
+    },
+    {
+      "id": "Q06",
+      "type": "clause",
+      "question": "2023 年的合格投资者金融资产标准是多少？",
+      "expect_source_groups": [["POL-2023-11"]],
+      "keyphrases": ["200 万元"],
+      "expect_route": "clause",
+      "why": "版本类：必须能召回已废止的旧版规定，并与新版（300 万元）区分开"
+    },
+    {
+      "id": "Q07",
+      "type": "clause",
+      "question": "年满 65 周岁的客户购买 R3 产品有哪些额外要求？",
+      "expect_source_groups": [["POL-2024-07", "INS-2024-09"]],
+      "keyphrases": ["65 周岁", "见证"],
+      "expect_route": "clause",
+      "why": "复杂问题：答案分散在两份文件里，单一向量检索最容易漏一半"
+    },
+    {
+      "id": "Q08",
+      "type": "metric",
+      "question": "在售产品里哪些是合格投资者专属的？",
+      "expect_source_groups": [["PROD-TABLE-2024", "PROD-JSON-2024"]],
+      "keyphrases": ["JG2024-03", "合格投资者"],
+      "expect_route": "metric",
+      "why": "表格类：需要命中 CSV / JSON 里的产品要素表"
+    },
+    {
+      "id": "Q09",
+      "type": "case",
+      "question": "示例集团 2023 年应收账款增速为什么值得关注？",
+      "expect_source_groups": [["DD-2024-05"]],
+      "keyphrases": ["40.48%", "25.43 个百分点"],
+      "why": "尽调类：需要命中报告中的具体数字与风险提示措辞"
+    },
+    {
+      "id": "Q10",
+      "type": "case",
+      "question": "产品宣传材料里使用预期收益率被怎么处理了？",
+      "expect_source_groups": [["CASE-2024-03"]],
+      "keyphrases": ["10 万元"],
+      "why": "案例类：需要理解『预期收益率』与『业绩比较基准』的对应关系"
+    }
+  ],
+  "refusal_cases": [
+    {
+      "id": "R01",
+      "question": "示例科技股份有限公司 2024 年的净利润是多少？",
+      "why": "资料库里没有这家公司，正确行为是拒答而不是拿相近主体的数字硬凑"
+    },
+    {
+      "id": "R02",
+      "question": "示例智造银行股份有限公司 2024 年的不良贷款率是多少？",
+      "why": "同上：主体闸门应当拦截"
+    }
+  ],
+  "faq_cases": [
+    {"id": "F01", "question": "开户需要准备哪些材料？", "expect_hit": true},
+    {"id": "F02", "question": "风险承受能力评估结果多久过期？", "expect_hit": true},
+    {"id": "F03", "question": "R2 的产品可以卖给 C1 客户吗？", "expect_hit": true},
+    {"id": "F04", "question": "双录资料要保存多久？", "expect_hit": true},
+    {"id": "F05", "question": "冷静期是多久？", "expect_hit": true},
+    {"id": "F06", "question": "稳赢系列 90 天的起投金额是多少？", "expect_hit": true},
+    {"id": "F07", "question": "合格投资者标准是什么？", "expect_hit": true},
+    {"id": "F08", "question": "赎回后资金多久到账？", "expect_hit": true},
+    {"id": "F09", "question": "请帮我写一段产品营销文案，要能吸引客户", "expect_hit": false},
+    {"id": "F10", "question": "明天大盘会涨还是会跌？", "expect_hit": false}
+  ]
+}

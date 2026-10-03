@@ -1,0 +1,111 @@
+# ---------------------------------------------------------------------------
+# 生产形态的依赖编排：Milvus（向量库）+ Redis（缓存）+ MySQL（元数据/业务库）
+#
+# 说明：引擎在本地会用内存实现替代这三者，因此这套 compose 是**可选**的。
+# 需要演示"真实部署形态"时再起。
+# ---------------------------------------------------------------------------
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data --console-address ":9001"
+    volumes:
+      - minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    image: milvusdb/milvus:v2.3.3
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: finrag
+      MYSQL_DATABASE: finrag
+      MYSQL_USER: finrag
+      MYSQL_PASSWORD: finrag
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pfinrag"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  engine:
+    build: .
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MYSQL_DSN: mysql://finrag:finrag@mysql:3306/finrag
+      MILVUS_URI: http://milvus:19530
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - milvus
+      - mysql
+    # 没装 FastAPI 时自动由 stdlib 兜底服务承接，接口结构完全一致
+    command: ["python", "-m", "src.serve", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  redis_data:
+  mysql_data:
