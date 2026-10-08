@@ -51,8 +51,24 @@ PARITY_RUN_ID = "parity-run"
 
 
 def _normalize_engine_tokens(text: str) -> str:
-    """遮蔽引擎名与快照哈希，只比对业务内容（快照哈希包含引擎名，天然不同）。"""
+    """遮蔽引擎名、时间戳与快照哈希，只比对业务内容。
+
+    三处必须归一化，否则对照用例会因非业务差异而误报失败：
+
+    1. **引擎名**：建议书正文与路径里会带 `langgraph` / `native`；
+    2. **时间戳**：正文含由 `utils.now_iso()` 生成的「确认时间」等字段，
+       两个引擎若跨秒执行（CI 上很常见），秒位就会不同 —— 这是此用例
+       曾经偶发失败的根因，故统一折叠为 `TS`；
+    3. **快照哈希**：12 位十六进制、被反引号包裹嵌在正文中（其输入含引擎名，
+       两引擎天然不同），折叠为 `HASH`。
+    """
     normalized = text.replace("langgraph", "ENGINE").replace("native", "ENGINE")
+    # 秒级/毫秒级 ISO 8601（带本地时区偏移或 Z），统一折叠为 TS
+    normalized = re.sub(
+        r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?",
+        "TS",
+        normalized,
+    )
     # 快照哈希为 12 位十六进制，被反引号包裹地嵌在正文中
     return re.sub(r"`[0-9a-f]{12}`", "`HASH`", normalized)
 
