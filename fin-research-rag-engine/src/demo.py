@@ -12,6 +12,35 @@
     python -m src.demo --mode dense                     # 用单一向量检索做对照
     python -m src.demo --expr 'year >= 2024'            # 带元数据过滤
     python -m src.demo --json out.json                  # 结果落盘
+
+在 RAG 全链路中的位置
+--------------------
+本模块是**链路最下游的只读消费者**：不解析、不切分、不检索、不生成，只做三件事——
+    1) `RAGEngine.build()` 触发一次完整建索引（解析 → 切分 → 索引 → FAQ）；
+    2) 调 `engine.stats()` / `engine.search()` / `engine.ask()` 拿现成结果；
+    3) 把结果排版到终端（可选 `--json` 落盘成完整 payload）。
+因此它同时是「人工验证入口」和「最小可运行样例」：链路上任何改动都应先在这里肉眼过一遍。
+
+对外关键函数
+------------
+    print_header(engine)        打印引擎体检表（资料库 / 切分 / 索引 / 重排 / LLM / 缓存）
+    print_answer(engine, result) 打印一次问答：路由与权重、召回漏斗、答案、证据、忠实度、耗时拆解
+    run_compare(engine, q, k)   同一问题跑 dense / bm25 / hybrid 三种策略并对比
+    main(argv)                  命令行入口（解析参数 → 建引擎 → 分发到上面三者）
+
+输入 / 输出 / 调用方
+--------------------
+    输入：命令行参数（问题、top_k、mode、route、expr、各类开关）+ `data/` 资料目录；
+    输出：stdout 体检表 / 问答排版 / 策略对比表；`--json <路径>` 时另写一个 JSON 文件，
+          结构为 {stats, results[], compare?}（results 是 `AnswerResult.to_dict()` 列表）；
+    被谁调用：人工执行（README 5.2 快速开始）、评审演示；`tests/` 不依赖它。
+    退出码：恒为 0（`--stats` 分支也返回 0）；异常不兜底，按 Python 默认栈抛出。
+
+副作用与异常
+------------
+    建索引（读 `data/`）、打印到 stdout（非 TTY 时由 `ensure_utf8_console()` 切 UTF-8）、
+    `--json` 时创建父目录并覆盖写文件；`engine.ask()` 内部失败都会转成 notes / 拒答，
+    不会让本模块崩掉。
 """
 
 from __future__ import annotations
@@ -29,6 +58,9 @@ from .utils.console import ensure_utf8_console
 LINE = "=" * 84
 THIN = "-" * 84
 
+# 内置示例问题：刻意覆盖多种问题类型路由，用来一眼看出「按类型配权重」确实在起作用——
+# 案例类（处罚案例）、指标类（合格投资者标准、应收账款增速）、
+# 条款/要素类（C2 客户可买什么、在售产品里哪些是合格投资者专属）。
 SAMPLE_QUESTIONS: List[str] = [
     "有没有向低风险承受能力客户销售高风险产品被处罚的案例？",
     "2023 年的合格投资者金融资产标准是多少？",
@@ -40,6 +72,14 @@ SAMPLE_QUESTIONS: List[str] = [
 
 
 def print_header(engine: RAGEngine) -> None:
+    """打印引擎体检横幅：资料库规模与来源格式、切分规模、索引与嵌入后端、重排 / LLM / 缓存后端、
+    主体清单规模，以及**解析告警（最多 4 条）**。
+
+    参数：engine 已构造好的引擎（本函数会现场调 `engine.stats()`，只读不建索引）。
+    返回：None。副作用：向 stdout 打印；不做任何格式之外的判断（数据缺失会 KeyError）。
+    注：实际实现为 `engine.stats()["chunks"]["avg_children_per_parent"]` 等字段直接下标取值，
+        因此 stats 结构改动会在这里第一时间暴露——这正是演示脚本的价值。
+    """
     stats = engine.stats()
     print("")
     print(LINE)
@@ -63,6 +103,19 @@ def print_header(engine: RAGEngine) -> None:
 
 
 def print_answer(engine: RAGEngine, result, show_evidence: bool = True) -> None:
+    """打印一次问答的全部可解释信息。
+
+    参数：engine 引擎实例（本函数未使用，保留是为了让三个打印函数签名统一、
+          后续若要打印引擎侧上下文时无需改调用点）；
+          result 任意具备 `AnswerResult` 结构的结果对象（question / retrieval / mode /
+          cache_hit / faq_hit / traceable / answer / evidence / faithfulness / timings）；
+          show_evidence 是否打印证据明细（`--no-evidence` 时为 False）。
+    返回：None。副作用：向 stdout 分块打印——问题 → 检索计划（路由 / 权重 / 查询变体 /
+    软硬过滤 / 召回漏斗）→ 模式与命中情况 → 答案正文 → 证据（编号、分数、三路命中、出处、
+    前 110 字）→ 忠实度（数字 / 支撑率 / 相关度，含未支撑数字告警）→ 耗时拆解。
+    异常：无（各段都以 `None` / 空值判断后跳过，因此缓存命中或 FAQ 直出这类
+          没有 retrieval / faithfulness 的结果也能安全打印）。
+    """
     print("")
     print(THIN)
     print(f"问题：{result.question}")
@@ -105,7 +158,16 @@ def print_answer(engine: RAGEngine, result, show_evidence: bool = True) -> None:
 
 
 def run_compare(engine: RAGEngine, question: str, top_k: int) -> Dict[str, Any]:
-    """对同一个问题分别跑「单一向量 / 纯关键词 / 混合三路+重排」。"""
+    """对同一个问题分别跑「单一向量 / 纯关键词 / 混合三路+重排」。
+
+    参数：engine 引擎实例；question 待对比的问题；top_k 每种策略取回的条数。
+    返回：dict——{question, dense_only:{sources, elapsed_ms}, bm25_only:{...}, hybrid:{...}}，
+          供 `--json` 落盘；`sources` 是 `RetrievalResult.source_ids`（去重后的资料编号）。
+    副作用：向 stdout 打印三种策略的耗时、来源与逐条证据（前 96 字），供现场对比。
+    异常：无（`engine.search()` 无命中时只是列表为空）。
+    注：dense / bm25 两种模式在 `RetrievalPipeline.run()` 里**刻意不加重排**，
+        否则对比的就变成「有没有重排」而不是「有没有混合召回」。
+    """
     dense = engine.search(question, top_k=top_k, mode="dense")
     bm25 = engine.search(question, top_k=top_k, mode="bm25")
     hybrid = engine.search(question, top_k=top_k, mode="hybrid")
@@ -129,6 +191,17 @@ def run_compare(engine: RAGEngine, question: str, top_k: int) -> Dict[str, Any]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """命令行入口：解析参数 → 建引擎 → 按参数分发到体检 / 对比 / 逐题问答。
+
+    参数：argv 参数列表（None 时 argparse 取 `sys.argv[1:]`）。
+    返回：int 退出码，恒为 0。
+    副作用：把 stdout 切到 UTF-8（非 TTY 时）；构造引擎（读 data/ 建索引）；打印；
+          `--json <路径>` 时创建父目录并覆盖写文件；`engine.cache` 存在时附带打印缓存命中统计。
+    异常：参数非法由 argparse 抛 SystemExit(2)；`--json` 路径不可写抛 OSError（不兜底）。
+    注：`RAGEngine.build(..., quiet=True)` 被传了下去，但注：实际实现为 `quiet` 只被
+        `RAGEngine.__init__` 存进 `self.quiet`，全项目没有第二个读取点（引擎自身不打印日志），
+        因此演示输出实际只来自本文件的 print——不是被 quiet 关掉的。
+    """
     ensure_utf8_console()
     parser = argparse.ArgumentParser(prog="python -m src.demo", description="金融智研引擎演示")
     parser.add_argument("--question", "-q", default=None, help="单个问题（默认跑内置示例）")
