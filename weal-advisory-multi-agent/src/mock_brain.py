@@ -1,5 +1,12 @@
 """确定性 mock 大脑（无 API Key 时的降级推理）。
 
+层级
+----
+措辞生成层，被 `src/llm.py` 的 `MockLLM` 单向调用（`llm.py` 只 import 本模块，
+本模块不反向依赖 `llm.py`，因此不存在循环依赖）。它位于确定性业务层
+（`src/constraints.py` / `src/optimizer.py` / `src/suitability/` / `src/stress.py` /
+`src/counterfactual.py`）之上，只消费这些模块已经算好的结构化事实。
+
 定位
 ----
 **它不是"假装调用模型"**，而是一组确定性的中文文案生成器：所有业务判断
@@ -10,10 +17,24 @@ mock 只负责把已经算好的结构化事实组织成人话。因此：
 - mock 输出完全可复现，适合写进单测断言；
 - 接上真实模型后，语义不变，只是措辞更自然。
 
+输出是怎么算出来的（可复现性保证）
+----------------------------------
+每个任务对应一个 `_xxx(ctx)` 纯函数：只用 `ctx.get(...)` 取字段、只用 f-string
+与 `pct()`（`src/utils.py`，比率按 `value * 100` 格式化为百分比）拼字符串，
+**不含随机数、不读时钟、不发网络请求、不读全局可变状态**。因此同一份 `ctx`
+必然得到逐字节相同的文案；缺字段时走 `ctx.get(key, 默认值)` 的兜底分支而不是抛异常。
+
+约定：`ctx` 中的比率类字段一律是 0~1 的小数（如 `0.35` 表示 35%），
+金额类字段是元；`mock_compose` 返回的字典键与下方 `TASK_SCHEMAS` 完全一致。
+
 任务清单（key 即 `compose(task=...)` 的 task 名）
 -------------------------------------------------
 `client_profile_summary` / `screening_note` / `optimizer_rationale` /
 `suitability_comment` / `advisor_summary` / `risk_disclosure` / `counterfactual_note`
+
+对应字段（真实模型也必须按 `TASK_SCHEMAS` 返回同样的 JSON 结构）：
+`summary` + `consistency_note` / `note` / `rationale` / `comment` / `summary` /
+`disclosure` / `note`。
 """
 
 from __future__ import annotations
@@ -23,6 +44,8 @@ from typing import Any, Callable, Mapping
 from .utils import pct
 
 #: 各任务要求的输出字段（真实模型也必须按此 JSON 结构返回）
+#: key 为 `compose(task=...)` 的 task 名，value 为必须存在的字段名元组；
+#: 这一份表同时是 `llm._prompt_for()` 的字段白名单与 `FallbackLLM` 的字段校验依据。
 TASK_SCHEMAS: dict[str, tuple[str, ...]] = {
     "client_profile_summary": ("summary", "consistency_note"),
     "screening_note": ("note",),
@@ -35,12 +58,37 @@ TASK_SCHEMAS: dict[str, tuple[str, ...]] = {
 
 
 def _fmt_money(value: float) -> str:
-    """金额千分位格式化。"""
+    """金额千分位格式化。
+
+    参数：
+        value：金额（元）。
+    返回：
+        `f"{value:,.0f} 元"`，即四舍五入到整数、带千分位并附「元」后缀的字符串
+        （注意：返回的是字符串，不是数值）。
+    """
     return f"{value:,.0f} 元"
 
 
 def _client_profile_summary(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """客户画像摘要。"""
+    """客户画像摘要。
+
+    参数：
+        ctx：客户画像上下文字典，实际由 `ClientProfilingAgent` 组装，字段为
+            `display_name` / `age` / `risk_level`（**有效等级**，已按从严原则取
+            档案与问卷的孰低者）/ `archived_level`（档案登记等级）/
+            `questionnaire_level`（问卷折算等级，可能为 None）/ `horizon_years` /
+            `investable_amount` / `caps`（含 `product` / `asset_class` / `issuer`
+            三个集中度上限）/ `liquidity_floor` / `prohibited`（禁止品类与禁止产品号
+            的合并列表）/ `experience`（已具备经验的品类列表）。
+
+    返回：
+        `{"summary": str, "consistency_note": str}`。
+        `consistency_note` 分三种确定性分支：问卷等级低于档案等级 → 取孰低并书面提示；
+        高于档案等级 → 仍取档案等级、不做上调；相等或任一侧缺失 → 说明无需调整。
+
+    侧记：注：`summary` 里的 `风险承受等级 R{level}` 引用的是 `risk_level`，
+    调用方传入的是**收紧后的有效等级**，因此该字段描述的是最终生效等级而非档案等级。
+    """
     name = ctx.get("display_name", "客户")
     age = ctx.get("age", 0)
     level = ctx.get("risk_level", 3)
@@ -79,7 +127,16 @@ def _client_profile_summary(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _screening_note(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """候选池筛选说明。"""
+    """候选池筛选说明。
+
+    参数：
+        ctx：筛选结果上下文，字段为 `universe_size`（全市场候选只数）/
+            `included_count`（落入硬约束可行域的只数）/ `top_exclusions`
+            （剔除原因字符串列表，取前 3 条）。
+    返回：
+        `{"note": str}`；剔除只数由 `universe_size - included_count` 现算得出，
+        不读取额外字段。
+    """
     universe = ctx.get("universe_size", 0)
     included = ctx.get("included_count", 0)
     excluded = universe - included
@@ -92,7 +149,16 @@ def _screening_note(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _optimizer_rationale(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """组合权衡说明。"""
+    """组合权衡说明。
+
+    参数：
+        ctx：组合上下文，字段为 `metrics`（含 `expected_return` /
+            `expected_volatility` / `liquidity_ratio` / `max_single_weight`）/
+            `binding`（当前起约束作用的上限描述字符串列表，可为空）/
+            `class_targets`（`{类别名: 目标权重}`，只列出大于 0 的项并按类别名排序）。
+    返回：
+        `{"rationale": str}`；`binding` 为空时输出"未触及任何硬约束上限"的分支。
+    """
     metrics = ctx.get("metrics", {})
     binding = ctx.get("binding") or []
     targets = ctx.get("class_targets") or {}
@@ -117,7 +183,17 @@ def _optimizer_rationale(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _suitability_comment(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """适当性复核意见。"""
+    """适当性复核意见。
+
+    参数：
+        ctx：闸门上下文，字段为 `directive`（`pass` / `reoptimize` / `reject`，
+            缺省按 `pass` 处理）/ `block_rules`（block 级命中规则号列表）/
+            `warn_rules`（warn 级命中规则号列表）/ `round_index`（0 基轮次，
+            文案中展示为 `round_index + 1`）。
+    返回：
+        `{"comment": str}`；`directive` 为其他未登记取值时返回通用文案
+        "适当性复核完成。"，不抛异常。带 `warn_rules` 时追加揭示提示。
+    """
     directive = ctx.get("directive", "pass")
     blocks = ctx.get("block_rules") or []
     warns = ctx.get("warn_rules") or []
@@ -139,7 +215,16 @@ def _suitability_comment(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _advisor_summary(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """建议书摘要。"""
+    """建议书摘要。
+
+    参数：
+        ctx：建议书上下文，字段为 `display_name` / `holding_count`（持仓只数）/
+            `cash_weight`（现金及活期留存权重）/ `metrics`（含 `expected_return` /
+            `expected_volatility`）/ `status`（`rejected` 时输出"不出具配置建议"
+            分支，其余取值一律输出正常结论分支）。
+    返回：
+        `{"summary": str}`。
+    """
     name = ctx.get("display_name", "客户")
     holdings = ctx.get("holding_count", 0)
     cash = ctx.get("cash_weight", 0.0)
@@ -159,7 +244,19 @@ def _advisor_summary(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _risk_disclosure(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """风险揭示。"""
+    """风险揭示。
+
+    参数：
+        ctx：风险上下文，字段为 `risk_level`（客户有效风险承受等级）/
+            `drawdown_tolerance`（客户约定的最大回撤容忍度，0~1）/
+            `worst_scenario_name`（最不利情景名，调用方已按组合冲击最小值选出）/
+            `worst_drawdown`（该情景下的估计最大回撤，0~1）。
+    返回：
+        `{"disclosure": str}`；文案固定声明测算为确定性推算、不构成收益承诺。
+
+    侧记：情景名的默认值是"压力情景"，而在 `narrative.build_narrative` 中传入的
+    默认值是"情景压力测试"，两处默认文案不同（仅为兜底措辞，不影响数值）。
+    """
     level = ctx.get("risk_level", 3)
     tolerance = ctx.get("drawdown_tolerance", 0.0)
     worst = ctx.get("worst_scenario_name", "压力情景")
@@ -174,7 +271,14 @@ def _risk_disclosure(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _counterfactual_note(ctx: Mapping[str, Any]) -> dict[str, str]:
-    """反事实解释导读。"""
+    """反事实解释导读。
+
+    参数：
+        ctx：反事实上下文，字段为 `variants`（假设变体列表，只取 `len()` 计数）/
+            `non_empty`（产生实质差异的变体数）。
+    返回：
+        `{"note": str}`；强调结论由「修改约束 → 重新求解 → 差异比对」得出且可复现。
+    """
     variants = ctx.get("variants") or []
     covered = ctx.get("non_empty", 0)
     note = (
@@ -186,6 +290,7 @@ def _counterfactual_note(ctx: Mapping[str, Any]) -> dict[str, str]:
 
 
 #: 任务 -> 生成器
+#: key 必须与 `TASK_SCHEMAS` 的 key 一一对应；未登记的任务由 `mock_compose` 兜底。
 BUILDERS: dict[str, Callable[[Mapping[str, Any]], dict[str, str]]] = {
     "client_profile_summary": _client_profile_summary,
     "screening_note": _screening_note,
@@ -198,7 +303,18 @@ BUILDERS: dict[str, Callable[[Mapping[str, Any]], dict[str, str]]] = {
 
 
 def mock_compose(task: str, context: Mapping[str, Any]) -> dict[str, str]:
-    """按任务生成确定性文案（未知任务返回通用占位说明，不抛异常）。"""
+    """按任务生成确定性文案（未知任务返回通用占位说明，不抛异常）。
+
+    参数：
+        task：任务名，取 `TASK_SCHEMAS` / `BUILDERS` 中的 key。
+        context：结构化事实字典；`mock` 只读取、不修改该字典。
+
+    返回：
+        `dict[str, str]`，键与 `TASK_SCHEMAS[task]` 一致（缺失的字段补空串）；
+        未登记的任务返回 `{"note": "（mock 大脑未登记任务 …，已按确定性规则跳过）"}`。
+
+    副作用/异常：无副作用；任何输入都不抛异常（这是"无 Key 也能跑通"的最后一层兜底）。
+    """
     builder = BUILDERS.get(task)
     if builder is None:
         return {"note": f"（mock 大脑未登记任务 {task}，已按确定性规则跳过）"}

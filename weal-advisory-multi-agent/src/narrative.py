@@ -1,9 +1,58 @@
 """投顾建议书撰写（含反事实解释、压力测试、风险揭示与双录留痕标记）。
 
+层级
+----
+建议书组装层（`src/narrative.py`）：被 `src/agents/advisor_narrative.py`
+（`AdvisorNarrativeAgent`）通过白名单工具间接调用，向下消费 `src/schemas.py` 的数据模型
+以及 `src/counterfactual.py` / `src/stress.py` 的表格化结果。它不参与任何业务判断。
+
+解决的问题
+----------
 本模块负责把确定性流水线算出的**全部结构化事实**组织成一份可交付的建议书，
 并显式标注要素是否齐全（评估指标「建议书要素完整率」直接复用 `elements`）。
 
-措辞部分（摘要、权衡说明、风险揭示）交给 LLM；无 Key 时由 mock 大脑生成确定性文案。
+对外暴露
+--------
+- `NARRATIVE_ELEMENTS`：12 项必备要素（key -> 章节标题 Markdown 标记）。
+- `build_narrative(...)`：主入口，返回 `(正文 text, 要素齐备情况 elements)`。
+- `dual_record_required(client, portfolio)`：判断是否触发双录留痕并给出原因。
+- `narrative_completeness(elements)`：要素完整率（0.0~1.0）。
+
+建议书文本如何组装（本质是"拼接"，不是"生成"）
+---------------------------------------------
+`build_narrative` 先按固定顺序声明一个 `lines: list[str]`，再逐章节 `append` /
+`extend` 片段，最后用 `"\\n".join(lines)` 得到正文。章节顺序与标题严格取自
+`NARRATIVE_ELEMENTS` 的 12 个 key（`constraints` → `screening` → `allocation` →
+`tradeoff` → `counterfactual` → `stress` → `suitability` → `risk` → `fee` →
+`dual_record` → `human_review` → `version`），每章之间插入一个空字符串形成空行。
+
+**确定性生成的内容**（完全由本模块的 f-string 与 `pct()` 拼出，与模型无关）：
+- 抬头（客户号 / 年龄 / 高龄标记 / `run_id` / `engine` / 版本号）与各章节标题；
+- 「一、客户约束回顾」：全部取自 `client.constraint_snapshot()` 与 `ClientProfile` 字段；
+- 「三、配置建议」的持仓表（`_holdings_table`）与组合指标行（`_metrics_line`）；
+- 「四、多目标权衡说明」中 `portfolio.rationale` 的逐条要点；
+- 「五、反事实解释」的表格（`counterfactual_to_rows`）、说明引用与逐条 `explanation`；
+- 「六、情景压力测试」的公式、表格（`stress_to_rows`）与最不利情景行；
+- 「七、适当性」的 `gate.comment`、block / warn 命中清单与规则依据；
+- 「九、费率」「十、双录留痕」「十一、人工确认」「十二、版本链」的全部内容；
+- 结尾的演示件免责声明。
+
+**由 `compose` 生成的内容**（措辞，共 5 次调用，`compose(task, context)` 由调用方注入）：
+`advisor_summary`（结论摘要）、`optimizer_rationale`（权衡说明段落）、
+`risk_disclosure`（风险揭示段落）、`screening_note`（筛选说明段落）、
+`counterfactual_note`（反事实导读段落）。无 Key 时这 5 次调用由
+`src/mock_brain.py` 的确定性生成器完成，因此整份建议书仍然完全可复现。
+
+要素齐备如何判定
+----------------
+`elements` 不是"章节是否被写入"的标记，而是**章节标题字符串是否出现在最终正文中**
+（`marker in text`）；12 个 key 全部出现即为完整。`narrative_completeness` 用
+"出现在正文中的要素数 ÷ 12" 计算，分母固定为 `len(NARRATIVE_ELEMENTS)`。
+
+被谁调用
+--------
+`src/agents/advisor_narrative.py`（导入 `build_narrative as compose_narrative`、
+`dual_record_required`、`narrative_completeness`）；`tests/test_narrative.py` 直接断言。
 """
 
 from __future__ import annotations
@@ -25,6 +74,8 @@ from .stress import stress_to_rows
 from .utils import pct
 
 #: 建议书必备要素（key -> 章节标题），评估指标按此计算完整率
+#: 这里同时充当"章节顺序表"：`build_narrative` 严格按本字典的 12 个 key 依次输出，
+#: value 既是打印出来的 Markdown 标题，也是 `elements` 的判定标记（`marker in text`）。
 NARRATIVE_ELEMENTS: dict[str, str] = {
     "constraints": "## 一、客户约束回顾",
     "screening": "## 二、候选产品池与剔除说明",
@@ -42,7 +93,17 @@ NARRATIVE_ELEMENTS: dict[str, str] = {
 
 
 def _holdings_table(portfolio: Portfolio, client: ClientProfile) -> list[str]:
-    """持仓明细表。"""
+    """持仓明细表。
+
+    参数：
+        portfolio：待展示的组合（只读，不修改）。
+        client：客户档案，仅用于取 `investable_amount` 换算参考金额。
+    返回：
+        Markdown 表格行列表：第一行为表头、第二行为分隔行，其后按
+        `portfolio.held_ids()` 的顺序每只产品一行；当 `portfolio.cash_weight > 0`
+        时额外追加一行 `CASH`（现金/活期留存，风险列固定写 `R1-低风险`）。
+    说明：权重与金额分别用 `pct()` 与千分位格式；全部为确定性拼接，不含随机与模型调用。
+    """
     lines = ["| 产品代码 | 产品名称 | 类别 | 风险等级 | 权重 | 参考金额（元） |", "| --- | --- | --- | --- | --- | --- |"]
     amounts = portfolio.holding_amounts(client.investable_amount)
     for pid in portfolio.held_ids():
@@ -60,7 +121,15 @@ def _holdings_table(portfolio: Portfolio, client: ClientProfile) -> list[str]:
 
 
 def _metrics_line(portfolio: Portfolio) -> str:
-    """核心指标一行。"""
+    """核心指标一行。
+
+    参数：
+        portfolio：组合对象；读取 `portfolio.metrics` 字典。
+    返回：
+        以中文分号连接的单行字符串，依次为预期年化收益、预期年化波动、流动性资产占比、
+        最大单一持仓、综合费率（保留 3 位小数）、持仓只数（取整后加「只」）。
+    说明：缺失的指标键按 0 处理，不抛异常。
+    """
     metrics = portfolio.metrics
     return (
         f"预期年化收益 {pct(metrics.get('expected_return', 0.0))}；"
@@ -73,7 +142,22 @@ def _metrics_line(portfolio: Portfolio) -> str:
 
 
 def dual_record_required(client: ClientProfile, portfolio: Portfolio) -> tuple[bool, list[str]]:
-    """判断是否触发双录留痕要求，并给出触发原因。"""
+    """判断是否触发双录留痕要求，并给出触发原因。
+
+    参数：
+        client：客户档案，读取 `is_elderly`。
+        portfolio：组合对象，读取 `held_ids()` 及各产品的 `risk_level` / `is_derivative`。
+
+    返回：
+        `(是否触发, 原因列表)`。触发条件为三者任一：
+        1. 客户为高龄客户（`client.is_elderly`）；
+        2. 配置了 R4 及以上风险等级产品（`risk_level >= 4`）；
+        3. 配置了含衍生品结构的产品（`is_derivative`）。
+        未触发时返回 `(False, [])`。
+
+    副作用：无（纯函数，不修改入参）；原因文案按上述固定顺序拼接，
+        并被 `AdvisorNarrativeAgent` 写入 trace 的 `dual_record_reasons`。
+    """
     reasons: list[str] = []
     if client.is_elderly:
         reasons.append("客户为高龄客户")
@@ -103,26 +187,62 @@ def build_narrative(
 
     `compose(task, context)` 由调用方注入（Agent 通过白名单工具 `narrative.compose_text`
     走 LLM/mock），因此本函数本身不直接依赖任何模型客户端，便于单测。
+
+    参数（全部为关键字参数，星号 `*` 之后的不可按位置传参）：
+        client：客户档案（只读），提供约束回顾所需字段与 `constraint_snapshot()`。
+        portfolio：组合对象（只读），提供持仓明细、`metrics`、`class_weights()`、`rationale`。
+        screening：筛选结果，可为 None；为 None 时跳过筛选说明与剔除表。
+        gate：适当性闸门结论，可为 None；为 None 时适当性章节只留空行。
+        human_review：人工确认记录，可为 None；仅当 `required` 为真时输出确认细节。
+        stress：压力测试报告，可为 None；为 None 时不输出情景章节内容。
+            非 None 时"最不利情景"取 `min(..., key=portfolio_impact)`，即组合估值冲击最小者。
+        counterfactual：反事实报告，可为 None。
+        version：当前建议版本号（整数，正文写成 `v{version}`）。
+        engine：推理引擎名，写入抬头与版本链。
+        run_id：本次运行标识，写入抬头与版本链。
+        compose：文案生成回调 `(task, context) -> Mapping`，见上方说明；
+            本函数不对其做异常兜底（降级由 `src/llm.py` 的 `FallbackLLM` 负责）。
+        prior_versions：历史版本快照序列，默认空；为空时输出"无历史版本"分支。
+
+    返回：
+        `(text, elements)`：`text` 为 Markdown 正文；`elements` 为
+        `{要素 key: 该要素标题是否出现在 text 中}`，key 与 `NARRATIVE_ELEMENTS` 相同。
+
+    副作用：
+        - 只读入参，不修改任何传入对象；
+        - 通过 `compose` 可能间接触发 LLM 网络调用（mock 模式下为纯计算）；
+        - 无文件与全局状态写入。
+
+    说明（注释与实现的一致性）：注：实际实现为——`context["status"]` 只由 `gate.directive`
+    决定（`reject` → `"rejected"`，其余一律 `"final"`），**不使用**调用方传入的 `status`；
+    且 `tradeoff_ctx["binding"]` 固定为空列表，因此权衡说明段落恒走"未触及任何硬约束上限"
+    分支。两处均为既有实现，此处如实记录，未改代码。
     """
     context: Mapping[str, Any] = {
         "display_name": client.display_name,
         "holding_count": len(portfolio.held_ids()),
         "cash_weight": portfolio.cash_weight,
         "metrics": portfolio.metrics,
+        # 注：status 由 gate 单独决定，与调用方传入的 status 参数无关
         "status": "rejected" if (gate is not None and gate.directive == "reject") else "final",
     }
+    # 第 1 次 compose：结论摘要
     summary = str(compose("advisor_summary", context).get("summary", ""))
 
     tradeoff_ctx = {
         "metrics": portfolio.metrics,
+        # 注：实际实现为固定空列表（不区分是否触及约束上限）
         "binding": [],
         "class_targets": portfolio.class_weights(),
     }
+    # 第 2 次 compose：多目标权衡说明段落
     tradeoff = str(compose("optimizer_rationale", tradeoff_ctx).get("rationale", ""))
 
+    # 最不利情景 = 组合估值冲击最小的那条（min，而非 max）
     worst = None
     if stress and stress.scenarios:
         worst = min(stress.scenarios, key=lambda item: item.portfolio_impact)
+    # 第 3 次 compose：风险揭示段落
     disclosure = str(
         compose(
             "risk_disclosure",
@@ -135,6 +255,8 @@ def build_narrative(
         ).get("disclosure", "")
     )
 
+    # 以下正文全部为确定性拼接：先按 NARRATIVE_ELEMENTS 的章节顺序逐章 append，
+    # 最后统一 join。只有 5 处 compose 调用产出的段落来自（mock 或真实）LLM。
     lines: list[str] = []
     lines.append(f"# 投资顾问建议书（示例演示件）")
     lines.append("")
@@ -179,6 +301,7 @@ def build_narrative(
     lines.append(NARRATIVE_ELEMENTS["screening"])
     lines.append("")
     if screening is not None:
+        # 第 4 次 compose：筛选说明段落
         note = str(
             compose(
                 "screening_note",
@@ -224,6 +347,7 @@ def build_narrative(
     lines.append(NARRATIVE_ELEMENTS["counterfactual"])
     lines.append("")
     if counterfactual is not None:
+        # 第 5 次（最后一次）compose：反事实导读段落
         note = str(
             compose(
                 "counterfactual_note",
@@ -354,12 +478,21 @@ def build_narrative(
     lines.append("> 本建议书为开源演示件，全部客户与产品均为虚构，不构成任何投资建议。")
 
     text = "\n".join(lines)
+    # 要素齐备性判定：标题标记是否出现在最终正文里（不是"章节是否被写入"的标记）
     elements = {key: (marker in text) for key, marker in NARRATIVE_ELEMENTS.items()}
     return text, elements
 
 
 def narrative_completeness(elements: Mapping[str, bool]) -> float:
-    """建议书要素完整率。"""
+    """建议书要素完整率。
+
+    参数：
+        elements：`build_narrative` 返回的要素齐备映射（也可传入任意子集）。
+    返回：
+        取值个数为真的项数 ÷ `len(NARRATIVE_ELEMENTS)`（**分母固定为 12**，
+        与传入 `elements` 的键数无关），结果 `round(..., 6)`。
+    边界：`elements` 为空字典时直接返回 `0.0`。
+    """
     if not elements:
         return 0.0
     return round(sum(1 for value in elements.values() if value) / len(NARRATIVE_ELEMENTS), 6)

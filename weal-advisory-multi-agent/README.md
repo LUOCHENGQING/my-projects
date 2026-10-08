@@ -34,6 +34,8 @@
 
 ## 2. 架构总览
 
+> **全流程架构图**：[docs/架构全流程图.md](docs/架构全流程图.md)（含打回重配闭环、人工闸门位置、版本链；附 Mermaid 源码）　｜　大图：[docs/架构全景图.png](docs/架构全景图.png)
+
 ```mermaid
 flowchart LR
     subgraph DATA["数据层（全部虚构）"]

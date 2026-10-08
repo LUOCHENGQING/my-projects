@@ -5,6 +5,37 @@
     → 反事实解释 → 情景压力测试 → 投顾建议书 → 建议版本链 → 人工确认留痕
 
 默认使用 mock LLM（无 Key 也一定跑得通），`--engine native` 可强切零依赖引擎。
+
+层级
+----
+展示/入口层（`src/demo.py`），只负责**读 state 并打印**，不含任何投顾业务判定：
+它调用 `src/pipeline.py` 的 `run_pipeline` 拿到 `(state, tracer, pipeline)`，
+再把 state 渲染成人可读的报告。除了打印，唯一的写操作是 trace
+（由 `Tracer` 写入 `runs/*.jsonl`）与建议版本链（由 `VersionStore` 写入
+`runs/version_chain.jsonl`）。
+
+解决的问题
+----------
+让整套约束驱动流程可被人肉眼复核：每个数字都标出来源环节，适当性拦截、
+反事实差异、压力测试结果与留痕要求逐条打印，便于演示与验收。
+
+对外暴露
+--------
+- `main(argv)`：CLI 主流程，返回进程退出码（固定 0）。
+- `build_parser()`：命令行参数构造（便于测试与复用）。
+- `print_client_report(...)`：打印一位客户 9 个环节的完整报告（可被外部复用）。
+- 常量 `LINE` / `DOUBLE`（分隔线）。
+
+主要输入输出
+------------
+输入：命令行参数（客户号、引擎、是否自动放行、最大重配轮次、豁免规则、输出目录等）
+与 `data/` 下的 JSON 样例数据（经 `dataset.load_data()`）。
+输出：标准输出上的报告文本；磁盘上的 trace 文件与建议版本链文件。
+
+被谁调用
+--------
+命令行 `python -m src.demo`（`__main__` 分支）；`tests/` 中按需调用
+`build_parser()` / `main()`。参数解析失败时 `argparse` 会以退出码 2 结束进程。
 """
 
 from __future__ import annotations
@@ -26,17 +57,33 @@ from .suitability import ALL_RULES, format_rule_table
 from .utils import pct
 from .versioning import VersionStore, chain_rows
 
+#: 报告分隔线：LINE 用于建议书正文上下、DOUBLE 用于大标题与首尾
 LINE = "─" * 100
 DOUBLE = "═" * 100
 
 
 def _section(title: str) -> None:
+    """打印章节标题：先输出一个空行，再输出 `【标题】`。
+
+    参数：title：章节名（调用方已带序号与负责 Agent 名）。
+    返回：None。
+    副作用：写标准输出。
+    """
     print()
     print(f"【{title}】")
 
 
 def _weights_table(portfolio: Portfolio, investable: float) -> None:
-    """打印持仓表。"""
+    """打印持仓表。
+
+    参数：
+        portfolio：组合对象（读 `held_ids()` / `weights` / `cash_weight` / `products`）。
+        investable：可投金额，用于把权重换算成参考金额（元）。
+    返回：None。
+    副作用：写标准输出。无持仓且现金权重也不为正时打印"（无持仓）"后返回；
+        现金权重为正时额外打印一行 `CASH`（现金/活期留存，风险列固定 `R1`）。
+    说明：列宽用格式化对齐，纯展示，不参与任何计算。
+    """
     if not portfolio.held_ids() and portfolio.cash_weight <= 0:
         print("  （无持仓）")
         return
@@ -63,7 +110,27 @@ def print_client_report(
     tracer,
     show_narrative: bool,
 ) -> None:
-    """打印一位客户的完整链路。"""
+    """打印一位客户的完整链路。
+
+    参数（关键字-only）：
+        client_id：客户号。注：实际实现为——本函数只把它**用于签名占位**，
+            正文里的客户信息一律从 `state["client"]` 取，因此传入不一致的值不会报错、
+            也不会改变输出。
+        state：`run_pipeline` 返回的共享状态字典；必需的键为 `client` / `portfolio` /
+            `advice` / `human_review` / `profile` / `screening`，可选键为 `gate` /
+            `gate_rounds` / `tighten` / `counterfactual` / `stress`（用 `state.get()` 读）。
+        pipeline：`AdvisoryPipeline`，用于读取建议版本链（`pipeline.store.chain(...)`）。
+        tracer：trace 记录器，末尾读取 `step_count()` 与 `total_latency_ms()`。
+        show_narrative：是否打印建议书全文（`--brief` 时为 False，只打印要素统计）。
+
+    返回：None。
+    副作用：写标准输出；不修改 `state`（只读）。
+    异常：`state` 缺少必需键时抛 `KeyError`；`state["portfolio"]` 为 None 时
+        在持仓表处抛 `AttributeError`（均由上游流水线保证不为 None）。
+
+    输出结构共 9 节：1 客户约束 → 2 候选池 → 3 组合构建 → 4 适当性闸门 →
+    5 反事实解释 → 6 压力测试 → 7 人工确认 → 8 投顾建议书 → 9 版本链与运行痕迹。
+    """
     client = state["client"]
     summary = state_summary(state)
     portfolio: Portfolio = state["portfolio"]
@@ -172,7 +239,22 @@ def print_client_report(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构造命令行参数。"""
+    """构造命令行参数。
+
+    返回：配置好的 `argparse.ArgumentParser`（`prog` 固定为 `python -m src.demo`）。
+    支持的参数：
+        `--client`（可重复，指定客户号，缺省跑全部样例客户）、
+        `--engine`（`langgraph` | `native`，**默认 `langgraph`**；
+            若未安装 langgraph 会由 `engine.resolve_engine` 自动降级到 `native`）、
+        `--auto`（人工确认环节自动放行，演示用）、
+        `--max-rounds`（适当性打回重配最大轮次，默认 2）、
+        `--exempt`（可重复，人工豁免的 block 规则号）、
+        `--brief`（不打印建议书全文）、
+        `--catalog`（只打印规则清单与 Agent 能力清单）、
+        `--runs-dir`（trace 输出目录，缺省 `runs/`）、
+        `--chain-file`（建议版本链文件，缺省 `runs/version_chain.jsonl`）。
+    副作用：无（仅构造解析器；解析失败由 `parse_args` 抛 `SystemExit(2)`）。
+    """
     parser = argparse.ArgumentParser(
         prog="python -m src.demo",
         description="财富管理投顾多智能体演示（约束驱动：硬约束求解 + 适当性闸门 + 反事实 + 压力测试）",
@@ -190,11 +272,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI 入口。"""
+    """CLI 入口。
+
+    参数：
+        argv：参数列表；None 时取 `sys.argv[1:]`（由 `parse_args` 决定）。
+
+    返回：
+        进程退出码，正常路径固定返回 0（`--catalog` 分支也返回 0）。
+
+    流程：
+        1. 解析参数并 `load_data()` 装载 `data/` 下的样例数据；
+        2. 若给了 `--catalog`：打印适当性规则清单 + 五个 Agent 的能力清单 +
+           工具总数后**直接返回**（不跑流水线、不写任何文件、不需要 LLM）；
+        3. 否则确定客户列表与 `VersionStore`（未给 `--chain-file` 时用其默认路径），
+           逐个客户调用 `run_pipeline(...)`（`interactive=False`）；
+        4. 首位客户额外打印 LLM 模式（`llm_status`）与引擎说明（`pipeline.engine_note`）；
+        5. 每位客户打印报告并累计 trace 步数与耗时，最后打印版本链文件路径。
+
+    副作用：写标准输出；通过 `run_pipeline` 写 trace 文件与建议版本链文件。
+    异常：参数非法由 `argparse` 抛 `SystemExit`；数据缺失由 `load_data()` 抛出。
+    """
     args = build_parser().parse_args(argv)
     data: DataBundle = load_data()
 
     if args.catalog:
+        # 只展示"规则 + 能力"，不跑流水线：不读样例数据、不写 trace
         print("适当性规则清单（%d 条）：" % len(ALL_RULES))
         print(format_rule_table())
         print()
@@ -221,6 +323,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     total_latency = 0.0
     total_steps = 0
+    # 客户按 data/ 中的顺序逐个跑；首位客户的 LLM/引擎信息只需打印一次
     for index, client_id in enumerate(client_ids):
         state, tracer, pipeline = run_pipeline(
             client_id,
@@ -256,4 +359,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # 以模块方式运行时把 main() 的返回码透传给 shell
     sys.exit(main())
