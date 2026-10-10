@@ -90,6 +90,8 @@
 
 ## 三、系统总览
 
+> **全流程架构图**：[docs/架构全流程图.md](docs/架构全流程图.md)（含 Mermaid 源码与图结构对照表）　｜　大图：[docs/架构全景图.png](docs/架构全景图.png)
+
 ```mermaid
 flowchart LR
     Q([自然语言问题]) --> R{问题路由}

@@ -51,6 +51,8 @@
 
 ## 二、架构
 
+> **全流程架构图**：[docs/架构全流程图.md](docs/架构全流程图.md)（含 Mermaid 源码与图结构对照表）　｜　大图：[docs/架构全景图.png](docs/架构全景图.png)
+
 ### 2.1 Agent 拓扑与条件边
 
 ```mermaid
